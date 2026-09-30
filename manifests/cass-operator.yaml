@@ -15,13 +15,13 @@ spec:
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: cassandra-operator
+  name: cass-operator
   namespace: cassandra
 spec:
   interval: 10m
   chart:
     spec:
-      chart: cassandra-operator
+      chart: cass-operator
       version: "0.67.2"
       sourceRef:
         kind: HelmRepository

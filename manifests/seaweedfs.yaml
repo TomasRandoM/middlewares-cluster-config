@@ -3,6 +3,15 @@ kind: Namespace
 metadata:
   name: seaweedfs
 ---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: seaweedfs-cinder-retain
+provisioner: cinder.csi.openstack.org
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
@@ -18,10 +27,7 @@ metadata:
   name: seaweedfs
   namespace: seaweedfs
 spec:
-  releaseName: seaweedfs
   interval: 10m
-  timeout: 15m
-
   chart:
     spec:
       chart: seaweedfs
@@ -30,72 +36,60 @@ spec:
         kind: HelmRepository
         name: seaweedfs
         namespace: flux-system
-
   values:
     global:
       seaweedfs:
         enableReplication: true
+        # 001: una copia extra en otro volume server
         replicationPlacement: "001"
 
     master:
-      enabled: true
       replicas: 1
       data:
         type: persistentVolumeClaim
-        storageClass: cassandra-cinder-retain
         size: 1Gi
+        storageClass: seaweedfs-cinder-retain
       logs:
         type: emptyDir
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 50m
+          memory: 64Mi
         limits:
-          memory: 512Mi
+          memory: 256Mi
 
     volume:
-      enabled: true
-      replicas: 2
+      replicas: 3
       dataDirs:
-        - name: data
+        - name: data1
           type: persistentVolumeClaim
-          storageClass: cassandra-cinder-retain
           size: 10Gi
+          storageClass: seaweedfs-cinder-retain
           maxVolumes: 0
+      logs:
+        type: emptyDir
       resources:
         requests:
-          cpu: 250m
-          memory: 512Mi
+          cpu: 50m
+          memory: 128Mi
         limits:
-          memory: 1Gi
+          memory: 512Mi
 
     filer:
-      enabled: true
       replicas: 1
       data:
         type: persistentVolumeClaim
-        storageClass: cassandra-cinder-retain
-        size: 5Gi
+        size: 2Gi
+        storageClass: seaweedfs-cinder-retain
       logs:
         type: emptyDir
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
+          memory: 128Mi
         limits:
-          memory: 1Gi
-
-    s3:
-      enabled: true
-      replicas: 1
-      enableAuth: true
-      service:
-        type: ClusterIP
-      logs:
-        type: emptyDir
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          memory: 1Gi
+          memory: 512Mi
+      # Gateway S3 embebido en el filer (puerto 8333)
+      s3:
+        enabled: true
+        enableAuth: false

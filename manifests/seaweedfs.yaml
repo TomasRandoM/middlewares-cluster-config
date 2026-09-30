@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seaweedfs
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: seaweedfs
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://seaweedfs.github.io/seaweedfs/helm
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: seaweedfs
+  namespace: seaweedfs
+spec:
+  releaseName: seaweedfs
+  interval: 10m
+  timeout: 15m
+
+  chart:
+    spec:
+      chart: seaweedfs
+      version: "4.48.0"
+      sourceRef:
+        kind: HelmRepository
+        name: seaweedfs
+        namespace: flux-system
+
+  values:
+    global:
+      seaweedfs:
+        enableReplication: true
+        replicationPlacement: "001"
+
+    master:
+      enabled: true
+      replicas: 1
+      data:
+        type: persistentVolumeClaim
+        storageClass: cassandra-cinder-retain
+        size: 1Gi
+      logs:
+        type: emptyDir
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+
+    volume:
+      enabled: true
+      replicas: 2
+      dataDirs:
+        - name: data
+          type: persistentVolumeClaim
+          storageClass: cassandra-cinder-retain
+          size: 10Gi
+          maxVolumes: 0
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+
+    filer:
+      enabled: true
+      replicas: 1
+      data:
+        type: persistentVolumeClaim
+        storageClass: cassandra-cinder-retain
+        size: 5Gi
+      logs:
+        type: emptyDir
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+
+    s3:
+      enabled: true
+      replicas: 1
+      enableAuth: true
+      service:
+        type: ClusterIP
+      logs:
+        type: emptyDir
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi

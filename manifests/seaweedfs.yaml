@@ -59,7 +59,7 @@ spec:
           memory: 256Mi
 
     volume:
-      replicas: 3
+      replicas: 2
       dataDirs:
         - name: data1
           type: persistentVolumeClaim

@@ -57,3 +57,26 @@ spec:
     grafana.ini:
       database:
         wal: true
+
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            uid: prometheus
+            url: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+            access: proxy
+            isDefault: true
+          - name: Loki
+            type: loki
+            uid: loki
+            url: http://loki.monitoring.svc:3100
+            access: proxy
+          - name: Alertmanager
+            type: alertmanager
+            uid: alertmanager
+            url: http://kube-prometheus-stack-alertmanager.monitoring.svc:9093
+            access: proxy
+            jsonData:
+              implementation: prometheus

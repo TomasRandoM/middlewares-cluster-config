@@ -1,0 +1,84 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: loki-cinder-retain
+provisioner: cinder.csi.openstack.org
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 10m
+  releaseName: loki
+  targetNamespace: monitoring
+  install:
+    createNamespace: true
+  chart:
+    spec:
+      chart: loki
+      version: "18.13.8"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+  values:
+    deploymentMode: Monolithic
+
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        retention_period: 168h
+      compactor:
+        retention_enabled: true
+        delete_request_store: filesystem
+
+    singleBinary:
+      replicas: 1
+      persistence:
+        enabled: true
+        storageClass: loki-cinder-retain
+        size: 10Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+    gateway:
+      enabled: false
+    sidecar:
+      rules:
+        enabled: false

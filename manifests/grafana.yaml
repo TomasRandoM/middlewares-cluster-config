@@ -1,3 +1,12 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: grafana-cinder-retain
+provisioner: cinder.csi.openstack.org
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
@@ -14,6 +23,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m
+  timeout: 20m
   releaseName: grafana
   targetNamespace: monitoring
   install:
@@ -21,9 +31,29 @@ spec:
   chart:
     spec:
       chart: grafana
+      version: "13.2.7"
       sourceRef:
         kind: HelmRepository
         name: grafana
   values:
     persistence:
-      enabled: false
+      enabled: true
+      type: pvc
+      storageClassName: grafana-cinder-retain
+      size: 5Gi
+    deploymentStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
+    startupProbe:
+      httpGet:
+        path: /api/health
+        port: grafana
+      periodSeconds: 10
+      failureThreshold: 120
+    progressDeadlineSeconds: 1200
+
+    grafana.ini:
+      database:
+        wal: true

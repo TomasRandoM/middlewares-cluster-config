@@ -28,6 +28,17 @@ metadata:
   namespace: seaweedfs
 spec:
   interval: 10m
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              version: v1
+              kind: Service
+              name: seaweedfs-s3
+            patch: |
+              - op: replace
+                path: /spec/selector/app.kubernetes.io~1component
+                value: s3
   chart:
     spec:
       chart: seaweedfs
@@ -89,7 +100,7 @@ spec:
           memory: 128Mi
         limits:
           memory: 512Mi
-      # Gateway S3 embebido en el filer (puerto 8333)
+      # El Service S3 se dirige al gateway separado mediante el post-renderer.
       s3:
         enabled: true
         enableAuth: false

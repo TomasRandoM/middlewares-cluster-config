@@ -1,5 +1,10 @@
 # Gestionado por Flux. El Secret se administra fuera de Git.
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: twitter
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: twitter-backend-config
@@ -12,7 +17,7 @@ data:
   CASSANDRA_LOCAL_DATACENTER: dc1
   CASSANDRA_KEYSPACE: twitter
   STORAGE_S3_ENABLED: "true"
-  STORAGE_S3_ENDPOINT: http://twitter-s3-gateway.seaweedfs.svc.cluster.local:8333
+  STORAGE_S3_ENDPOINT: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
   STORAGE_S3_REGION: us-east-1
   STORAGE_S3_BUCKET: twitter
   CORS_ALLOWED_ORIGINS: http://localhost:5173
@@ -29,6 +34,8 @@ spec:
       app: twitter-backend
   template:
     metadata:
+      annotations:
+        storage-s3-endpoint: http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333
       labels:
         app: twitter-backend
     spec:

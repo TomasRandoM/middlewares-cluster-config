@@ -29,6 +29,7 @@ metadata:
   name: twitter-backend
   namespace: flux-system
 spec:
+  suspend: true
   interval: 1m
   sourceRef:
     kind: GitRepository

@@ -1,0 +1,18 @@
+# El Deployment del frontend se agregará cuando exista su imagen.
+# Este Service permanecerá sin endpoints hasta entonces.
+apiVersion: v1
+kind: Service
+metadata:
+  name: twitter-frontend
+  namespace: twitter
+  annotations:
+    metallb.io/address-pool: twitter-pool
+    metallb.io/loadBalancerIPs: 10.66.50.3
+spec:
+  type: LoadBalancer
+  selector:
+    app: twitter-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

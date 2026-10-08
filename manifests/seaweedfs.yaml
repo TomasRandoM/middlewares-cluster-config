@@ -72,7 +72,7 @@ spec:
     volume:
       replicas: 2
       dataDirs:
-        - name: data1
+        - name: data
           type: persistentVolumeClaim
           size: 10Gi
           storageClass: cassandra-cinder-retain

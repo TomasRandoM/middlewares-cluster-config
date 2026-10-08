@@ -59,7 +59,7 @@ spec:
       data:
         type: persistentVolumeClaim
         size: 1Gi
-        storageClass: seaweedfs-cinder-retain
+        storageClass: cassandra-cinder-retain
       logs:
         type: emptyDir
       resources:
@@ -75,7 +75,7 @@ spec:
         - name: data1
           type: persistentVolumeClaim
           size: 10Gi
-          storageClass: seaweedfs-cinder-retain
+          storageClass: cassandra-cinder-retain
           maxVolumes: 0
       logs:
         type: emptyDir
@@ -91,7 +91,7 @@ spec:
       data:
         type: persistentVolumeClaim
         size: 5Gi
-        storageClass: seaweedfs-cinder-retain
+        storageClass: cassandra-cinder-retain
       logs:
         type: emptyDir
       resources:

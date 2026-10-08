@@ -1,20 +1,20 @@
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
-  name: plaza-backend
+  name: twitter-backend
   namespace: flux-system
 spec:
-  image: docker.io/joacor7/plaza-api
+  image: docker.io/joacor7/twitter-api
   interval: 5m
 ---
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
-  name: plaza-backend
+  name: twitter-backend
   namespace: flux-system
 spec:
   imageRepositoryRef:
-    name: plaza-backend
+    name: twitter-backend
   filterTags:
     pattern: '^v1$'
   policy:
@@ -26,7 +26,7 @@ spec:
 apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageUpdateAutomation
 metadata:
-  name: plaza-backend
+  name: twitter-backend
   namespace: flux-system
 spec:
   interval: 1m
@@ -41,7 +41,7 @@ spec:
       author:
         name: flux-image-automation
         email: flux-image-automation@users.noreply.github.com
-      messageTemplate: 'chore: actualizar imagen del backend Plaza'
+      messageTemplate: 'chore: actualizar imagen del backend Twitter'
     push:
       branch: main
   update:

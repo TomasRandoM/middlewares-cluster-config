@@ -1,0 +1,21 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: twitter-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.66.50.2-10.66.50.9
+  autoAssign: false
+  serviceAllocation:
+    namespaces:
+      - twitter
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: twitter-pool
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - twitter-pool

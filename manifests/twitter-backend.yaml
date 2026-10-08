@@ -41,7 +41,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: joacor7/twitter-api:v1 # {"$imagepolicy": "flux-system:twitter-backend"}
+          image: joacor7/twitter-api:v1 
           ports:
             - name: http
               containerPort: 8080

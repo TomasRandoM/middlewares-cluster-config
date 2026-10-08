@@ -1,4 +1,4 @@
-# Flux gestiona Namespace, ConfigMap y Service. Actions actualiza el Deployment.
+# Gestionado por Flux. El Secret se administra fuera de Git.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -27,9 +27,6 @@ kind: Deployment
 metadata:
   name: twitter-backend
   namespace: twitter
-  annotations:
-    kustomize.toolkit.fluxcd.io/reconcile: disabled
-    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   replicas: 1
   selector:
@@ -44,7 +41,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: joacor7/twitter-api:v1
+          image: joacor7/twitter-api:v1 # {"$imagepolicy": "flux-system:twitter-backend"}
           ports:
             - name: http
               containerPort: 8080

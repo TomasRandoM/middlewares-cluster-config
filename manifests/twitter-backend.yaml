@@ -1,5 +1,10 @@
 # Gestionado por Flux. El Secret se administra fuera de Git.
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: twitter
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: twitter-backend-config

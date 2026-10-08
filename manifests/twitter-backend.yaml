@@ -2,47 +2,47 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: plaza-backend-config
-  namespace: plaza
+  name: twitter-backend-config
+  namespace: twitter
 data:
   SPRING_PROFILES_ACTIVE: prod,cassandra
   CASSANDRA_CONTACT_POINTS: clustercassandra-dc1-service.cassandra.svc.cluster.local
   CASSANDRA_PORT: "9042"
   CASSANDRA_LOCAL_FORWARD: "false"
   CASSANDRA_LOCAL_DATACENTER: dc1
-  CASSANDRA_KEYSPACE: plaza
+  CASSANDRA_KEYSPACE: twitter
   STORAGE_S3_ENABLED: "true"
-  STORAGE_S3_ENDPOINT: http://plaza-s3-gateway.seaweedfs.svc.cluster.local:8333
+  STORAGE_S3_ENDPOINT: http://twitter-s3-gateway.seaweedfs.svc.cluster.local:8333
   STORAGE_S3_REGION: us-east-1
-  STORAGE_S3_BUCKET: plaza
+  STORAGE_S3_BUCKET: twitter
   CORS_ALLOWED_ORIGINS: http://localhost:5173
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: plaza-backend
-  namespace: plaza
+  name: twitter-backend
+  namespace: twitter
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: plaza-backend
+      app: twitter-backend
   template:
     metadata:
       labels:
-        app: plaza-backend
+        app: twitter-backend
     spec:
       containers:
         - name: backend
-          image: joacor7/plaza-api:v1 # {"$imagepolicy": "flux-system:plaza-backend"}
+          image: joacor7/twitter-api:v1 # {"$imagepolicy": "flux-system:twitter-backend"}
           ports:
             - name: http
               containerPort: 8080
           envFrom:
             - configMapRef:
-                name: plaza-backend-config
+                name: twitter-backend-config
             - secretRef:
-                name: plaza-backend-secrets
+                name: twitter-backend-secrets
           resources:
             requests:
               cpu: 100m
@@ -71,11 +71,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: plaza-backend
-  namespace: plaza
+  name: twitter-backend
+  namespace: twitter
 spec:
   selector:
-    app: plaza-backend
+    app: twitter-backend
   ports:
     - name: http
       port: 8080

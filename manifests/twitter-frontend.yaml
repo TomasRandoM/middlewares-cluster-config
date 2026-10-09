@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: tomasrandom/grupo5-webapp:v1.0.0
+          image: tomasrandom/grupo5-webapp:sha-6427a942ce2de730a22c1bbe187114acc9f883f2
           imagePullPolicy: Always
           ports:
             - name: http

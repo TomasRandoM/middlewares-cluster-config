@@ -42,7 +42,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: joacor7/twitter-api:v1 
+          image: joacor7/twitter-api:sha-7a01410fab2692a52befb38f9d4bd2405ac24635 
           ports:
             - name: http
               containerPort: 8080

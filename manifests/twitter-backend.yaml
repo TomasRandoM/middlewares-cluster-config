@@ -40,17 +40,56 @@ spec:
       labels:
         app: twitter-backend
     spec:
+      # Agente de OpenTelemetry: métricas HTTP, JVM y Cassandra en :9464, sin cambiar el código de la app
+      initContainers:
+        - name: otel-agent
+          image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.32.0
+          command: ["cp", "/javaagent.jar", "/otel/javaagent.jar"]
+          volumeMounts:
+            - name: otel-agent
+              mountPath: /otel
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: otel-agent
+          emptyDir: {}
       containers:
         - name: backend
           image: joacor7/twitter-api:sha-7a01410fab2692a52befb38f9d4bd2405ac24635 
           ports:
             - name: http
               containerPort: 8080
+            # Métricas del agente; no se expone en el Service LoadBalancer
+            - name: otel-metrics
+              containerPort: 9464
           envFrom:
             - configMapRef:
                 name: twitter-backend-config
             - secretRef:
                 name: twitter-backend-secrets
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: -javaagent:/otel/javaagent.jar
+            - name: OTEL_SERVICE_NAME
+              value: twitter-backend
+            - name: OTEL_METRICS_EXPORTER
+              value: prometheus
+            - name: OTEL_EXPORTER_PROMETHEUS_PORT
+              value: "9464"
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+            # Habilita las métricas de duración de las consultas a Cassandra
+            - name: OTEL_SEMCONV_STABILITY_OPT_IN
+              value: database
+          volumeMounts:
+            - name: otel-agent
+              mountPath: /otel
           resources:
             requests:
               cpu: 100m

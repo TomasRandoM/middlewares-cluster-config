@@ -1,0 +1,216 @@
+# Qué scrapea Prometheus además de lo que trae kube-prometheus-stack.
+# Todo vive en "monitoring"; namespaceSelector indica dónde están los objetivos.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cassandra
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [cassandra]
+  selector:
+    matchLabels:
+      cassandra.datastax.com/prom-metrics: "true"
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      # Sin filtro son ~43.000 series por nodo; así quedan ~3.500.
+      # Se descartan los buckets de histogramas, salvo los de latencia de requests (para p95/p99:
+      # Cassandra exporta la suma como NaN), y las métricas de los keyspaces internos system*.
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: org_apache_cassandra_metrics_client_request_latency_bucket
+          targetLabel: __tmp_keep
+          replacement: "true"
+        - sourceLabels: [__name__, __tmp_keep]
+          regex: .+_bucket;
+          action: drop
+        - regex: __tmp_keep
+          action: labeldrop
+        - sourceLabels: [keyspace]
+          regex: system.*
+          action: drop
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cass-operator
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [cassandra]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cass-operator
+  endpoints:
+    - targetPort: metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: seaweedfs
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [seaweedfs]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [master, filer, volume]
+  endpoints:
+    - port: metrics
+      interval: 60s
+      relabelings:
+        # El filer también aparece en seaweedfs-filer-client; sin esto se scrapea dos veces
+        - sourceLabels: [__meta_kubernetes_service_name]
+          regex: seaweedfs-filer-client
+          action: drop
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: seaweedfs-s3
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [seaweedfs]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+      app.kubernetes.io/component: s3
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flux-system
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [flux-system]
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - helm-controller
+          - source-controller
+          - kustomize-controller
+          - notification-controller
+          - image-automation-controller
+          - image-reflector-controller
+  podMetricsEndpoints:
+    - port: http-prom
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_phase]
+          regex: Running
+          action: keep
+---
+# Métricas del agente de OpenTelemetry del backend (ver twitter-backend.yaml)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: twitter-backend
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [twitter]
+  selector:
+    matchLabels:
+      app: twitter-backend
+  podMetricsEndpoints:
+    - port: otel-metrics
+      interval: 30s
+      metricRelabelings:
+        - regex: otel_scope_(schema_url|version)
+          action: labeldrop
+---
+# Chequeos desde adentro del cluster con blackbox-exporter (blackbox-exporter.yaml)
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: twitter-frontend
+  namespace: monitoring
+spec:
+  module: http_2xx
+  interval: 30s
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static: ["http://10.66.50.3/"]
+      labels:
+        servicio: twitter-frontend
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: twitter-backend
+  namespace: monitoring
+spec:
+  module: http_2xx
+  interval: 30s
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      # readiness también verifica la conexión a Cassandra y a S3
+      static: ["http://10.66.50.2:8080/actuator/health/readiness"]
+      labels:
+        servicio: twitter-backend
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  module: http_2xx
+  interval: 60s
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static: ["http://grafana.monitoring.svc/api/health"]
+      labels:
+        servicio: grafana
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: cassandra-cql
+  namespace: monitoring
+spec:
+  module: tcp_connect
+  interval: 30s
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static: ["clustercassandra-dc1-service.cassandra.svc:9042"]
+      labels:
+        servicio: cassandra-cql
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: seaweedfs-s3
+  namespace: monitoring
+spec:
+  module: tcp_connect
+  interval: 30s
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static: ["seaweedfs-s3.seaweedfs.svc:8333"]
+      labels:
+        servicio: seaweedfs-s3

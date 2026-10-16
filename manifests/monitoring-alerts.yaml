@@ -1,0 +1,147 @@
+# Alertas propias del proyecto. Se suman a las que trae kube-prometheus-stack
+# (KubePodCrashLooping, TargetDown, KubePersistentVolumeFillingUp, nodos, etc.).
+# Las warning y critical llegan a Telegram (ver alertmanager.config en prometheus.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: proyecto
+  namespace: monitoring
+spec:
+  groups:
+    - name: twitter
+      rules:
+        - alert: TwitterNoDisponible
+          expr: probe_success{servicio=~"twitter-.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.servicio }} no responde"
+            description: "El chequeo HTTP a {{ $labels.instance }} falla desde hace más de 2 minutos."
+        - alert: TwitterLento
+          expr: probe_duration_seconds{servicio=~"twitter-.*"} > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.servicio }} responde lento"
+            description: "{{ $labels.instance }} tarda {{ $value | humanizeDuration }} en responder (umbral: 2s)."
+        # Las dos siguientes usan las métricas del agente de OpenTelemetry; se excluyen los health checks
+        - alert: TwitterErrores5xx
+          expr: |
+            (
+              sum(rate(http_server_request_duration_seconds_count{namespace="twitter", http_route!~"/actuator.*", http_response_status_code=~"5.."}[5m]))
+              / sum(rate(http_server_request_duration_seconds_count{namespace="twitter", http_route!~"/actuator.*"}[5m]))
+            ) > 0.05
+            and sum(rate(http_server_request_duration_seconds_count{namespace="twitter", http_route!~"/actuator.*"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "El backend de Twitter devuelve errores 5xx"
+            description: "El {{ $value | humanizePercentage }} de las respuestas de la API fueron 5xx en los últimos 5 minutos. Ver logs: {namespace=\"twitter\"} |= \"Error no controlado\""
+        - alert: TwitterLatenciaAlta
+          expr: |
+            histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{namespace="twitter", http_route!~"/actuator.*"}[5m]))) > 2
+            and on (http_route) sum by (http_route) (rate(http_server_request_duration_seconds_count{namespace="twitter", http_route!~"/actuator.*"}[5m])) > 0.01
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Twitter responde lento en {{ $labels.http_route }}"
+            description: "El 95% de los requests a {{ $labels.http_route }} tarda hasta {{ $value | humanizeDuration }} (umbral: 2s)."
+        - alert: TwitterSinReplicas
+          expr: kube_deployment_status_replicas_available{namespace="twitter"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.deployment }} no tiene réplicas disponibles"
+            description: "El deployment {{ $labels.namespace }}/{{ $labels.deployment }} lleva 2 minutos sin pods listos."
+
+    - name: servicios
+      rules:
+        - alert: ServicioNoDisponible
+          expr: probe_success{servicio!~"twitter-.*"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.servicio }} no responde"
+            description: "El chequeo a {{ $labels.instance }} falla desde hace más de 3 minutos."
+
+    - name: cassandra
+      rules:
+        - alert: CassandraNodoNoListo
+          expr: kube_pod_status_ready{namespace="cassandra", pod=~"clustercassandra-dc1-.*", condition="true"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Nodo de Cassandra {{ $labels.pod }} no está listo"
+            description: "El pod {{ $labels.pod }} lleva 3 minutos sin estar Ready. Con un nodo caído el cluster sigue, pero sin margen."
+        - alert: CassandraErroresDeConsulta
+          expr: sum by (pod) (increase({__name__=~"org_apache_cassandra_metrics_client_request_(timeouts|unavailables)_.+_total", namespace="cassandra"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra devuelve timeouts o errores de disponibilidad"
+            description: "{{ $labels.pod }} registró {{ $value | humanize }} timeouts/unavailables en los últimos 5 minutos."
+        - alert: CassandraMensajesDescartados
+          expr: sum by (pod) (increase(org_apache_cassandra_metrics_dropped_message_dropped_total{namespace="cassandra"}[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra está descartando mensajes"
+            description: "{{ $labels.pod }} descartó {{ $value | humanize }} mensajes en 10 minutos: señal de sobrecarga."
+        - alert: CassandraTareasBloqueadas
+          expr: max by (pod, pool_name) (org_apache_cassandra_metrics_thread_pools_currently_blocked_tasks{namespace="cassandra"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra tiene tareas bloqueadas en {{ $labels.pool_name }}"
+            description: "{{ $labels.pod }} tiene {{ $value }} tareas bloqueadas en el pool {{ $labels.pool_name }} desde hace 10 minutos."
+        - alert: CassandraCompactacionesPendientes
+          expr: max by (pod) (org_apache_cassandra_metrics_compaction_pending_tasks{namespace="cassandra"}) > 50
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra acumula compactaciones pendientes"
+            description: "{{ $labels.pod }} tiene {{ $value }} compactaciones pendientes desde hace 30 minutos."
+
+    - name: seaweedfs
+      rules:
+        - alert: SeaweedFSComponenteCaido
+          expr: up{namespace="seaweedfs"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "SeaweedFS: {{ $labels.pod }} no responde"
+            description: "Prometheus no puede leer las métricas de {{ $labels.pod }} desde hace 5 minutos."
+
+    - name: flux
+      rules:
+        - alert: FluxReconciliacionFallida
+          expr: max by (customresource_kind, exported_namespace, name) (gotk_resource_info{ready="False", suspended!="true"}) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flux: {{ $labels.customresource_kind }} {{ $labels.exported_namespace }}/{{ $labels.name }} está fallando"
+            description: "Lleva 15 minutos sin poder aplicarse. Ver: kubectl -n {{ $labels.exported_namespace }} describe {{ $labels.customresource_kind }} {{ $labels.name }}"
+
+    - name: general
+      rules:
+        - alert: PodReiniciosFrecuentes
+          expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} se reinicia seguido"
+            description: "El contenedor {{ $labels.container }} se reinició {{ $value | humanize }} veces en la última hora."

@@ -82,3 +82,8 @@ spec:
     sidecar:
       rules:
         enabled: false
+
+    monitoring:
+      serviceMonitor:
+        enabled: true
+        interval: 30s

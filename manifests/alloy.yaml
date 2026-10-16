@@ -29,6 +29,9 @@ spec:
     crds:
       create: false
 
+    serviceMonitor:
+      enabled: true
+
     # El default reserva 50Mi por nodo para el sidecar que recarga la config
     configReloader:
       resources:

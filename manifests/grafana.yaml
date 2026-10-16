@@ -58,6 +58,30 @@ spec:
       database:
         wal: true
 
+    # Carga los dashboards de los ConfigMaps con label grafana_dashboard=1 (carpeta según la anotación grafana_folder)
+    sidecar:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"
+        searchNamespace: monitoring
+        folderAnnotation: grafana_folder
+        provider:
+          foldersFromFilesStructure: true
+
+    serviceMonitor:
+      enabled: true
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: grafana_(apiserver|feature)_.*
+          action: drop
+
     datasources:
       datasources.yaml:
         apiVersion: 1

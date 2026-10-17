@@ -81,7 +81,11 @@ spec:
             summary: "Nodo de Cassandra {{ $labels.pod }} no está listo"
             description: "El pod {{ $labels.pod }} lleva 3 minutos sin estar Ready. Con un nodo caído el cluster sigue, pero sin margen."
         - alert: CassandraErroresDeConsulta
-          expr: sum by (pod) (increase({__name__=~"org_apache_cassandra_metrics_client_request_(timeouts|unavailables)_.+_total", namespace="cassandra"}[5m])) > 0
+          expr: |
+            (
+              sum by (pod) (increase(org_apache_cassandra_metrics_client_request_timeouts_total{namespace="cassandra"}[5m]))
+              + sum by (pod) (increase(org_apache_cassandra_metrics_client_request_unavailables_total{namespace="cassandra"}[5m]))
+            ) > 0
           for: 5m
           labels:
             severity: warning

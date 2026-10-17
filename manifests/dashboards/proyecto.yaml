@@ -2341,7 +2341,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(increase({__name__=~\"org_apache_cassandra_metrics_client_request_(timeouts|unavailables)_.+_total\", namespace=\"cassandra\"}[1h])) or vector(0)",
+              "expr": "(sum(increase(org_apache_cassandra_metrics_client_request_timeouts_total{namespace=\"cassandra\"}[1h])) + sum(increase(org_apache_cassandra_metrics_client_request_unavailables_total{namespace=\"cassandra\"}[1h]))) or vector(0)",
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -3502,7 +3502,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum by (pod) (SeaweedFS_volumeServer_resource{namespace=\"seaweedfs\", pod=~\"seaweedfs-volume-.*\", type=\"all\"} - SeaweedFS_volumeServer_resource{namespace=\"seaweedfs\", pod=~\"seaweedfs-volume-.*\", type=\"avail\"})",
+              "expr": "sum by (pod) (SeaweedFS_volumeServer_resource{namespace=\"seaweedfs\", pod=~\"seaweedfs-volume-.*\", type=\"all\"}) - sum by (pod) (SeaweedFS_volumeServer_resource{namespace=\"seaweedfs\", pod=~\"seaweedfs-volume-.*\", type=\"avail\"})",
               "legendFormat": "usado {{pod}}",
               "refId": "A",
               "datasource": {

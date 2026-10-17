@@ -66,6 +66,8 @@ data:
             {
               "expr": "probe_success",
               "legendFormat": "{{servicio}}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -142,6 +144,8 @@ data:
           "targets": [
             {
               "expr": "count(ALERTS{alertstate=\"firing\", alertname!~\"Watchdog|InfoInhibitor\", severity=~\"warning|critical\"}) or vector(0)",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -207,6 +211,8 @@ data:
           "targets": [
             {
               "expr": "sum(kube_pod_status_ready{namespace=\"cassandra\", pod=~\"clustercassandra-dc1-.*\", condition=\"true\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -272,6 +278,8 @@ data:
           "targets": [
             {
               "expr": "count(gotk_resource_info{ready=\"False\"}) or vector(0)",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -625,6 +633,8 @@ data:
             {
               "expr": "100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes",
               "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -796,6 +806,8 @@ data:
           "targets": [
             {
               "expr": "probe_success{servicio=\"twitter-frontend\"}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -872,6 +884,8 @@ data:
           "targets": [
             {
               "expr": "probe_success{servicio=\"twitter-backend\"}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -948,6 +962,8 @@ data:
           "targets": [
             {
               "expr": "sum(rate(http_server_request_duration_seconds_count{namespace=\"twitter\", http_route!~\"/actuator.*\"}[5m])) or vector(0)",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -994,6 +1010,8 @@ data:
           "targets": [
             {
               "expr": "100 * sum(rate(http_server_request_duration_seconds_count{namespace=\"twitter\", http_route!~\"/actuator.*\", http_response_status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_request_duration_seconds_count{namespace=\"twitter\", http_route!~\"/actuator.*\"}[5m])), 1e-9) or vector(0)",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -1060,6 +1078,8 @@ data:
           "targets": [
             {
               "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"twitter\", http_route!~\"/actuator.*\"}[5m])))",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -1127,6 +1147,8 @@ data:
             {
               "expr": "kube_deployment_status_replicas_available{namespace=\"twitter\"}",
               "legendFormat": "{{deployment}}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2046,6 +2068,8 @@ data:
           "targets": [
             {
               "expr": "sum(kube_pod_status_ready{namespace=\"cassandra\", pod=~\"clustercassandra-dc1-.*\", condition=\"true\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2111,6 +2135,8 @@ data:
           "targets": [
             {
               "expr": "probe_success{servicio=\"cassandra-cql\"}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2187,6 +2213,8 @@ data:
           "targets": [
             {
               "expr": "sum(org_apache_cassandra_metrics_client_connected_native_clients{namespace=\"cassandra\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2231,6 +2259,8 @@ data:
           "targets": [
             {
               "expr": "sum(org_apache_cassandra_metrics_storage_load{namespace=\"cassandra\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2277,6 +2307,8 @@ data:
           "targets": [
             {
               "expr": "sum(org_apache_cassandra_metrics_compaction_pending_tasks{namespace=\"cassandra\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2342,6 +2374,8 @@ data:
           "targets": [
             {
               "expr": "(sum(increase(org_apache_cassandra_metrics_client_request_timeouts_total{namespace=\"cassandra\"}[1h])) + sum(increase(org_apache_cassandra_metrics_client_request_unavailables_total{namespace=\"cassandra\"}[1h]))) or vector(0)",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -2947,6 +2981,8 @@ data:
             {
               "expr": "up{namespace=\"seaweedfs\"}",
               "legendFormat": "{{pod}}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -3023,6 +3059,8 @@ data:
           "targets": [
             {
               "expr": "probe_success{servicio=\"seaweedfs-s3\"}",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -3099,6 +3137,8 @@ data:
           "targets": [
             {
               "expr": "sum(SeaweedFS_master_volume_layout_writable{namespace=\"seaweedfs\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -3143,6 +3183,8 @@ data:
           "targets": [
             {
               "expr": "sum(SeaweedFS_master_under_replicated_volumes{namespace=\"seaweedfs\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",
@@ -3204,6 +3246,8 @@ data:
           "targets": [
             {
               "expr": "sum(SeaweedFS_volumeServer_resource{namespace=\"seaweedfs\", pod=~\"seaweedfs-volume-.*\", type=\"avail\"}) / sum(SeaweedFS_volumeServer_resource{namespace=\"seaweedfs\", pod=~\"seaweedfs-volume-.*\", type=\"all\"})",
+              "instant": true,
+              "range": false,
               "refId": "A",
               "datasource": {
                 "type": "prometheus",

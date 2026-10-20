@@ -28,7 +28,7 @@ metadata:
   name: twitter-backend
   namespace: twitter
 spec:
-  replicas: 1
+  # Las replicas las administra el HPA; omitir replicas evita conflictos con Flux.
   selector:
     matchLabels:
       app: twitter-backend
@@ -134,3 +134,26 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: twitter-backend
+  namespace: twitter
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: twitter-backend
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300

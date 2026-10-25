@@ -53,6 +53,24 @@ spec:
       periodSeconds: 10
       failureThreshold: 120
     progressDeadlineSeconds: 1200
+    # El request es el uso real: sin él, el scheduler cuenta a Grafana como si no ocupara memoria
+    resources:
+      requests:
+        cpu: 20m
+        memory: 420Mi
+      limits:
+        memory: 768Mi
+    # Los nodos con Cassandra tienen ~1 GiB libre; Grafana los dejaría sin margen
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              namespaces: [cassandra]
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: cassandra
 
     grafana.ini:
       database:

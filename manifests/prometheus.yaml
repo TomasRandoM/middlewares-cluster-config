@@ -55,6 +55,40 @@ spec:
     kubeControllerManager:
       enabled: false
 
+    # Histogramas que ninguna regla ni dashboard usa (~21k series de ~100k). Las listas reemplazan
+    # las del chart, por eso se repiten sus reglas por defecto.
+    kubeApiServer:
+      serviceMonitor:
+        metricRelabelings:
+          # Default del chart: buckets intermedios de las latencias del API server
+          - action: drop
+            regex: (etcd_request|apiserver_request_slo|apiserver_request_sli|apiserver_request)_duration_seconds_bucket;(0\.15|0\.2|0\.3|0\.35|0\.4|0\.45|0\.6|0\.7|0\.8|0\.9|1\.25|1\.5|1\.75|2|3|3\.5|4|4\.5|6|7|8|9|15|20|40|45|50)(\.0)?
+            sourceLabels: [__name__, le]
+          # Se conservan apiserver_request_sli_* (KubeAPIErrorBudgetBurn) y etcd_request_* (diagnóstico de etcd)
+          - action: drop
+            regex: apiserver_(request_duration_seconds|request_body_size_bytes|response_sizes|watch_list_duration_seconds|watch_cache_read_wait_seconds|watch_events_sizes)_bucket|kubernetes_feature_enabled
+            sourceLabels: [__name__]
+    kubelet:
+      serviceMonitor:
+        metricRelabelings:
+          # Default del chart
+          - action: drop
+            sourceLabels: [__name__, le]
+            regex: (csi_operations|storage_operation_duration)_seconds_bucket;(0.25|2.5|15|25|120|600)(\.0)?
+          - action: drop
+            sourceLabels: [__name__]
+            regex: kubernetes_feature_enabled
+        probesMetricRelabelings:
+          - action: drop
+            sourceLabels: [__name__]
+            regex: prober_probe_duration_seconds_bucket
+    kubeProxy:
+      serviceMonitor:
+        metricRelabelings:
+          - action: drop
+            sourceLabels: [__name__]
+            regex: kubernetes_feature_enabled
+
     alertmanager:
       alertmanagerSpec:
         replicas: 1
@@ -121,12 +155,27 @@ spec:
               resources:
                 requests:
                   storage: 10Gi
+        # El request es el uso real: el scheduler decide con él, no con lo que el pod consume
         resources:
           requests:
             cpu: 100m
-            memory: 400Mi
+            memory: 650Mi
           limits:
             memory: 1536Mi
+        # Los nodos con Cassandra tienen ~1 GiB libre; Prometheus los dejaría sin margen.
+        # La anti-afinidad propia del chart (entre réplicas de Prometheus) se apaga: hay una sola
+        # y duplicaría la clave podAntiAffinity.
+        podAntiAffinity: ""
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  namespaces: [cassandra]
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: cassandra
 
         serviceMonitorSelectorNilUsesHelmValues: false
         podMonitorSelectorNilUsesHelmValues: false

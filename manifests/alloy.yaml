@@ -51,10 +51,11 @@ spec:
     alloy:
       mounts:
         varlog: true
+      # Usa 115–160Mi por nodo
       resources:
         requests:
           cpu: 20m
-          memory: 64Mi
+          memory: 160Mi
         limits:
           memory: 256Mi
       configMap:

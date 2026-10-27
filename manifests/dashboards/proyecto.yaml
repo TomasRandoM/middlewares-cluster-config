@@ -690,7 +690,7 @@ data:
           },
           "targets": [
             {
-              "expr": "(100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))) * on (instance) group_left(nodename) node_uname_info",
+              "expr": "(100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=~\"idle|iowait\"}[5m])))) * on (instance) group_left(nodename) node_uname_info",
               "legendFormat": "{{nodename}}",
               "refId": "A",
               "datasource": {

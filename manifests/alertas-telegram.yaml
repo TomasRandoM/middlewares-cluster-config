@@ -1,0 +1,507 @@
+# Bot de Telegram para las alertas: Alertmanager le manda las alertas por webhook (receptor «bot»
+# en prometheus.yaml) y el bot las publica en el grupo con botones para silenciarlas.
+# Usa el mismo Secret que Alertmanager (alertmanager-telegram, creado a mano fuera de Git).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertas-telegram
+  namespace: monitoring
+data:
+  bot.py: |
+    """Puente entre Alertmanager y Telegram, con botones para silenciar.
+
+    - POST /alertmanager: webhook de Alertmanager. Manda el mensaje con botones 🔕 1 h / 4 h / 24 h.
+    - Hilo de getUpdates: atiende los botones y crea o quita el silencio en Alertmanager.
+    - Watchdog: Alertmanager lo manda una vez por día (09:00) y se convierte en el resumen diario.
+    Solo usa la biblioteca estándar de Python.
+    """
+    import html
+    import json
+    import logging
+    import os
+    import re
+    import signal
+    import sys
+    import threading
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    import uuid
+    from datetime import datetime, timedelta, timezone
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    ALERTMANAGER = os.environ.get("ALERTMANAGER_URL", "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093")
+    PROMETHEUS = os.environ.get("PROMETHEUS_URL", "http://kube-prometheus-stack-prometheus.monitoring.svc:9090")
+    TZ = timezone(timedelta(hours=-3))  # Argentina no tiene horario de verano
+    DURACIONES = (1, 4, 24)
+    MAX_ALERTAS = 10
+    MAX_TEXTO = 4000  # Telegram acepta hasta 4096 caracteres
+
+    log = logging.getLogger("alertas-telegram")
+    cfg = {}
+    # Botones cuyo callback_data no entra en los 64 bytes que permite Telegram; se pierden si el pod se reinicia
+    botones_largos = {}
+
+
+    class TelegramError(Exception):
+        def __init__(self, descripcion, reintentar_en=None):
+            super().__init__(descripcion)
+            self.reintentar_en = reintentar_en
+
+
+    # --- Formato -------------------------------------------------------------------------------------
+
+    def e(texto):
+        return html.escape(str(texto), quote=False)
+
+
+    def parsear_hora(ts):
+        """RFC 3339 de Alertmanager (con nanosegundos) a datetime; None si es el cero de Go."""
+        m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$", ts or "")
+        if not m or m.group(1).startswith("0001"):
+            return None
+        zona = "+00:00" if m.group(2) == "Z" else m.group(2)
+        return datetime.fromisoformat(m.group(1) + zona)
+
+
+    def hora(ts):
+        t = parsear_hora(ts)
+        return t.astimezone(TZ).strftime("%d/%m %H:%M") if t else "?"
+
+
+    def numero(valor, decimales=0):
+        """Formato argentino: 12.345,6"""
+        texto = f"{valor:,.{decimales}f}"
+        return texto.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+    def formatear_alertas(payload):
+        alertas = payload.get("alerts", [])
+        activas = [a for a in alertas if a.get("status") == "firing"]
+        nombre = payload.get("commonLabels", {}).get("alertname") or payload.get("groupLabels", {}).get("alertname", "")
+        if payload.get("status") == "firing":
+            lineas = [f"🔥 <b>{len(activas)} alerta(s) activa(s)</b> · <b>{e(nombre)}</b>"]
+        else:
+            lineas = [f"✅ <b>Resuelta</b> · <b>{e(nombre)}</b>"]
+        for a in alertas[:MAX_ALERTAS]:
+            labels, notas = a.get("labels", {}), a.get("annotations", {})
+            icono = {"critical": "🔴", "warning": "🟠"}.get(labels.get("severity"), "🔵")
+            lineas.append("")
+            lineas.append(f"{icono} <b>{e(notas.get('summary') or labels.get('alertname', ''))}</b>")
+            if notas.get("description"):
+                lineas.append(e(notas["description"][:500]))
+            datos = [f"{k}={e(labels[c])}" for c, k in
+                     (("namespace", "ns"), ("pod", "pod"), ("deployment", "deployment"), ("instance", "instancia"))
+                     if labels.get(c)]
+            datos.append(f"severidad={e(labels.get('severity', ''))}")
+            lineas.append(f"<i>{' '.join(datos)}</i>")
+            cuando = f"🕒 {hora(a.get('startsAt'))}"
+            if a.get("status") == "resolved":
+                cuando += f" → {hora(a.get('endsAt'))}"
+            lineas.append(cuando)
+        if len(alertas) > MAX_ALERTAS:
+            lineas.append(f"… mostrando {MAX_ALERTAS} de {len(alertas)}")
+        texto = "\n".join(lineas)
+        return texto if len(texto) <= MAX_TEXTO else texto[:MAX_TEXTO] + "\n…"
+
+
+    # --- Botones -------------------------------------------------------------------------------------
+
+    def matchers_del_grupo(payload):
+        """El silencio cubre lo mismo que el mensaje: el grupo (alertname y namespace)."""
+        grupo = payload.get("groupLabels", {})
+        return {k: grupo[k] for k in ("alertname", "namespace") if grupo.get(k)}
+
+
+    def codificar(accion, horas, matchers):
+        data = f"{accion}|{horas}|{matchers.get('alertname', '')}|{matchers.get('namespace', '')}"
+        if len(data.encode()) <= 64:
+            return data
+        clave = uuid.uuid4().hex[:12]
+        botones_largos[clave] = matchers
+        return f"{accion}|{horas}|#{clave}"
+
+
+    def decodificar(partes):
+        """partes = [alertname, namespace] o ["#clave"]; None si la clave se perdió."""
+        if len(partes) == 1 and partes[0].startswith("#"):
+            return botones_largos.get(partes[0][1:])
+        alertname, namespace = (partes + ["", ""])[:2]
+        return {k: v for k, v in (("alertname", alertname), ("namespace", namespace)) if v}
+
+
+    def botones_silenciar(matchers):
+        return {"inline_keyboard": [[{"text": f"🔕 {h} h", "callback_data": codificar("s", h, matchers)}
+                                     for h in DURACIONES]]}
+
+
+    def describir(matchers):
+        texto = f"<b>{e(matchers.get('alertname', '?'))}</b>"
+        if matchers.get("namespace"):
+            texto += f" ({e(matchers['namespace'])})"
+        return texto
+
+
+    # --- Resumen diario ------------------------------------------------------------------------------
+
+    def armar_resumen(d, ahora=None):
+        """d: resultado de consultar_estado(); los valores None se muestran como «sin datos»."""
+        ahora = (ahora or datetime.now(TZ)).astimezone(TZ)
+        ok = lambda v: "✅" if v else "❌"
+        lineas = [f"☀️ <b>Resumen diario</b> · {ahora:%d/%m %H:%M}", "", "<b>Servicios</b>"]
+        if d.get("chequeos") is None:
+            lineas.append("sin datos de los chequeos")
+        else:
+            lineas.append(" · ".join(f"{ok(v)} {e(s)}" for s, v in sorted(d["chequeos"].items())))
+        if d.get("cassandra") is not None:
+            listos, total = d["cassandra"]
+            lineas.append(f"{ok(listos == total and total > 0)} Cassandra: {listos}/{total} nodos listos")
+        if d.get("replicas") is not None:
+            lineas.append(f"{ok(d['replicas'] > 0)} Backend: {d['replicas']} réplica(s) disponible(s)")
+
+        lineas += ["", "<b>Twitter, últimas 24 h</b>"]
+        if d.get("disponibilidad"):
+            lineas.append("Disponibilidad: " + " · ".join(
+                f"{e(s.removeprefix('twitter-'))} {numero(100 * v, 2)} %" for s, v in sorted(d["disponibilidad"].items())))
+        if d.get("requests") is not None:
+            texto = f"Requests a la API: {numero(d['requests'])}"
+            if d["requests"] > 0 and d.get("errores") is not None:
+                texto += f" · errores 5xx: {numero(100 * d['errores'] / d['requests'], 2)} %"
+            lineas.append(texto)
+
+        lineas.append("")
+        if d.get("alertas") is None:
+            lineas.append("<b>Alertas activas</b>: sin datos")
+        elif not d["alertas"]:
+            lineas.append("<b>Alertas activas</b>: ninguna")
+        else:
+            lineas.append("<b>Alertas activas</b>: " + ", ".join(
+                f"{e(n)} ({c})" if c > 1 else e(n) for n, c in sorted(d["alertas"].items())))
+        if d.get("memoria") is not None:
+            nodo, libre = d["memoria"]
+            lineas.append(f"<b>Nodo con menos memoria libre</b>: {e(nodo)} ({numero(libre)} MiB)")
+        if d.get("errores_consulta"):
+            lineas.append(f"\n⚠️ No pude consultar: {e(', '.join(d['errores_consulta']))}")
+        return "\n".join(lineas)
+
+
+    def consultar_estado():
+        d = {"errores_consulta": []}
+        api = '{namespace="twitter", http_route!~"/actuator.*"'
+
+        def consulta(clave, promql, convertir):
+            try:
+                d[clave] = convertir(prometheus(promql))
+            except Exception as exc:  # cada dato es opcional: si falla uno, el resumen sale igual
+                log.warning("consulta %s: %s", clave, exc)
+                d[clave] = None
+                d["errores_consulta"].append(clave)
+
+        valor = lambda r: float(r[0]["value"][1]) if r else 0.0
+        consulta("chequeos", "probe_success", lambda r: {x["metric"].get("servicio", "?"): x["value"][1] == "1" for x in r})
+        consulta("cassandra_listos", 'sum(kube_pod_status_ready{namespace="cassandra", pod=~"clustercassandra-dc1-.*", '
+                 'condition="true"})', lambda r: int(valor(r)))
+        consulta("cassandra_total", 'count(kube_pod_info{namespace="cassandra", pod=~"clustercassandra-dc1-.*"})',
+                 lambda r: int(valor(r)))
+        listos, total = d.pop("cassandra_listos"), d.pop("cassandra_total")
+        d["cassandra"] = (listos, total) if listos is not None and total is not None else None
+        consulta("replicas", 'kube_deployment_status_replicas_available{namespace="twitter", deployment="twitter-backend"}',
+                 lambda r: int(valor(r)))
+        consulta("disponibilidad", 'avg by (servicio) (avg_over_time(probe_success{servicio=~"twitter-.*"}[24h]))',
+                 lambda r: {x["metric"]["servicio"]: float(x["value"][1]) for x in r})
+        consulta("requests", f"sum(increase(http_server_request_duration_seconds_count{api}}}[24h]))", valor)
+        consulta("errores", f'sum(increase(http_server_request_duration_seconds_count{api}, http_response_status_code=~"5.."}}[24h]))',
+                 valor)
+        consulta("alertas", 'count by (alertname) (ALERTS{alertstate="firing", alertname!~"Watchdog|InfoInhibitor", '
+                 'severity=~"warning|critical"})', lambda r: {x["metric"]["alertname"]: int(float(x["value"][1])) for x in r})
+        consulta("memoria", "bottomk(1, node_memory_MemAvailable_bytes * on (instance) group_left(nodename) node_uname_info)",
+                 lambda r: (r[0]["metric"]["nodename"], float(r[0]["value"][1]) / 1048576) if r else None)
+        return d
+
+
+    # --- APIs ----------------------------------------------------------------------------------------
+
+    def pedir(url, metodo="GET", cuerpo=None, timeout=15):
+        datos = json.dumps(cuerpo).encode() if cuerpo is not None else None
+        req = urllib.request.Request(url, data=datos, method=metodo, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            contenido = r.read()
+        return json.loads(contenido) if contenido else None
+
+
+    def prometheus(promql):
+        r = pedir(f"{PROMETHEUS}/api/v1/query?" + urllib.parse.urlencode({"query": promql}))
+        return r["data"]["result"]
+
+
+    def telegram(metodo, espera=15, **params):
+        # La URL lleva el token: nunca se loguea
+        req = urllib.request.Request(f"https://api.telegram.org/bot{cfg['token']}/{metodo}",
+                                     data=json.dumps(params).encode(), headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=espera) as r:
+                resp = json.load(r)
+        except urllib.error.HTTPError as exc:  # Telegram responde JSON también en los errores
+            try:
+                resp = json.load(exc)
+            except ValueError:
+                raise TelegramError(f"HTTP {exc.code}") from None
+        except urllib.error.URLError as exc:
+            raise TelegramError(f"sin conexión: {exc.reason}") from None
+        if not resp.get("ok"):
+            raise TelegramError(resp.get("description", "error"), resp.get("parameters", {}).get("retry_after"))
+        return resp["result"]
+
+
+    def enviar(texto, **extra):
+        return telegram("sendMessage", chat_id=cfg["chat_id"], text=texto, parse_mode="HTML",
+                        disable_web_page_preview=True, **extra)
+
+
+    def crear_silencio(matchers, horas, quien):
+        ahora = datetime.now(timezone.utc)
+        hasta = ahora + timedelta(hours=horas)
+        r = pedir(f"{ALERTMANAGER}/api/v2/silences", "POST", {
+            "matchers": [{"name": k, "value": v, "isRegex": False, "isEqual": True} for k, v in matchers.items()],
+            "startsAt": ahora.isoformat(), "endsAt": hasta.isoformat(),
+            "createdBy": quien, "comment": f"Silenciada desde Telegram por {horas} h"})
+        return r["silenceID"], hasta
+
+
+    def quitar_silencio(silencio_id):
+        """Devuelve los matchers del silencio, para volver a ofrecer los botones."""
+        s = pedir(f"{ALERTMANAGER}/api/v2/silence/{urllib.parse.quote(silencio_id)}")
+        if s["status"]["state"] != "expired":
+            pedir(f"{ALERTMANAGER}/api/v2/silence/{urllib.parse.quote(silencio_id)}", "DELETE")
+        return {m["name"]: m["value"] for m in s["matchers"] if m["name"] in ("alertname", "namespace")}
+
+
+    # --- Botones de Telegram -------------------------------------------------------------------------
+
+    def quien_es(usuario):
+        nombre = " ".join(filter(None, (usuario.get("first_name"), usuario.get("last_name")))) or "alguien"
+        return f"{nombre} (@{usuario['username']})" if usuario.get("username") else nombre
+
+
+    def cambiar_botones(message_id, botones):
+        try:
+            telegram("editMessageReplyMarkup", chat_id=cfg["chat_id"], message_id=message_id, reply_markup=botones)
+        except TelegramError as exc:  # p. ej. el mensaje es muy viejo; el silencio ya está hecho
+            log.warning("editMessageReplyMarkup: %s", exc)
+
+
+    def atender_boton(cq):
+        mensaje = cq.get("message") or {}
+        responder = lambda texto, alerta=False: telegram("answerCallbackQuery", callback_query_id=cq["id"],
+                                                         text=texto, show_alert=alerta)
+        if mensaje.get("chat", {}).get("id") != cfg["chat_id"]:
+            log.warning("botón tocado desde otro chat (%s): ignorado", mensaje.get("chat", {}).get("id"))
+            responder("No autorizado", True)
+            return
+        quien = quien_es(cq.get("from", {}))
+        partes = (cq.get("data") or "").split("|")
+        try:
+            if partes[0] == "s" and len(partes) >= 3:
+                horas = int(partes[1])
+                matchers = decodificar(partes[2:])
+                if not matchers:
+                    responder("El bot se reinició y perdió este botón: silenciá desde Grafana", True)
+                    return
+                silencio_id, hasta = crear_silencio(matchers, horas, quien)
+                log.info("%s silenció %s por %d h (silencio %s)", quien, matchers, horas, silencio_id)
+                cambiar_botones(mensaje["message_id"],
+                                {"inline_keyboard": [[{"text": "🔊 Quitar silencio", "callback_data": f"u|{silencio_id}"}]]})
+                enviar(f"🔕 <b>{e(quien)}</b> silenció {describir(matchers)} por {horas} h, hasta "
+                       f"{hasta.astimezone(TZ):%d/%m %H:%M}.", reply_to_message_id=mensaje["message_id"])
+                responder(f"Silenciada por {horas} h")
+            elif partes[0] == "u" and len(partes) == 2:
+                matchers = quitar_silencio(partes[1])
+                log.info("%s quitó el silencio %s", quien, partes[1])
+                cambiar_botones(mensaje["message_id"], botones_silenciar(matchers))
+                enviar(f"🔊 <b>{e(quien)}</b> quitó el silencio de {describir(matchers)}.",
+                       reply_to_message_id=mensaje["message_id"])
+                responder("Silencio quitado")
+            else:
+                log.warning("botón desconocido: %r", cq.get("data"))
+                responder("Botón desconocido")
+        except (urllib.error.URLError, KeyError, ValueError) as exc:
+            log.warning("botón %s: %s", partes[0], exc)
+            responder(f"No pude hablar con Alertmanager: {exc}", True)
+
+
+    def escuchar_botones():
+        offset = None
+        while True:
+            try:
+                # Long polling: Telegram retiene el pedido hasta 50 s si no hay botones tocados
+                for u in telegram("getUpdates", espera=70, offset=offset, timeout=50, allowed_updates=["callback_query"]):
+                    offset = u["update_id"] + 1
+                    if "callback_query" in u:
+                        try:
+                            atender_boton(u["callback_query"])
+                        except TelegramError as exc:
+                            log.warning("respuesta al botón: %s", exc)
+            except TelegramError as exc:
+                log.warning("getUpdates: %s", exc)
+                time.sleep(exc.reintentar_en or 5)
+            except Exception:
+                log.exception("getUpdates")
+                time.sleep(5)
+
+
+    # --- Webhook de Alertmanager ---------------------------------------------------------------------
+
+    def procesar(payload):
+        nombre = payload.get("groupLabels", {}).get("alertname") or payload.get("commonLabels", {}).get("alertname")
+        log.info("webhook %s: %s (%d alerta(s))", payload.get("status"), nombre, len(payload.get("alerts", [])))
+        if nombre == "Watchdog":
+            if payload.get("status") == "firing":
+                enviar(armar_resumen(consultar_estado()))
+            else:
+                enviar("⚠️ <b>Prometheus dejó de mandar el Watchdog</b>\nEl monitoreo puede estar caído: revisá Prometheus.")
+            return
+        extra = {}
+        matchers = matchers_del_grupo(payload)
+        if payload.get("status") == "firing" and matchers:
+            extra["reply_markup"] = botones_silenciar(matchers)
+        enviar(formatear_alertas(payload), **extra)
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def responder(self, codigo, texto=""):
+            cuerpo = texto.encode()
+            self.send_response(codigo)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            self.wfile.write(cuerpo)
+
+        def do_GET(self):
+            if self.path != "/healthz":
+                return self.responder(404)
+            vivo = cfg.get("hilo") is not None and cfg["hilo"].is_alive()
+            self.responder(200 if vivo else 500, "ok" if vivo else "el hilo de Telegram murió")
+
+        def do_POST(self):
+            if self.path != "/alertmanager":
+                return self.responder(404)
+            try:
+                payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            except ValueError:
+                return self.responder(400, "JSON inválido")
+            try:
+                procesar(payload)
+            except TelegramError as exc:  # 503: Alertmanager reintenta
+                log.warning("sendMessage: %s", exc)
+                return self.responder(503, str(exc))
+            self.responder(200, "ok")
+
+        def log_message(self, *args):
+            pass
+
+
+    def main():
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        # Como PID 1, Python ignora SIGTERM: sin esto Kubernetes espera 30 s antes de matar el pod
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        carpeta = os.environ.get("SECRET_DIR", "/etc/telegram")
+        cfg["token"] = open(f"{carpeta}/bot-token").read().strip()
+        cfg["chat_id"] = int(open(f"{carpeta}/chat-id").read().strip())
+        cfg["hilo"] = threading.Thread(target=escuchar_botones, daemon=True, name="botones")
+        cfg["hilo"].start()
+        log.info("escuchando en :8080")
+        ThreadingHTTPServer(("", 8080), Handler).serve_forever()
+
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertas-telegram
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertas-telegram
+spec:
+  replicas: 1
+  # Telegram admite un solo getUpdates por bot: nunca dos pods a la vez
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertas-telegram
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertas-telegram
+      annotations:
+        # Cambiar el ConfigMap no reinicia el pod: al editar bot.py, subir este número
+        alertas-telegram/version: "1"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bot
+          image: python:3.14.8-alpine3.24
+          command: ["python", "-u", "/app/bot.py"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: codigo
+              mountPath: /app
+              readOnly: true
+            - name: telegram
+              mountPath: /etc/telegram
+              readOnly: true
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: codigo
+          configMap:
+            name: alertas-telegram
+        - name: telegram
+          secret:
+            secretName: alertmanager-telegram
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertas-telegram
+  namespace: monitoring
+spec:
+  selector:
+    app.kubernetes.io/name: alertas-telegram
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -14,6 +14,8 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m
+  # El DaemonSet se actualiza de a un nodo; con 5 nodos el default de 5m no alcanza
+  timeout: 20m
   releaseName: alloy
   targetNamespace: monitoring
   install:
@@ -47,17 +49,29 @@ spec:
       tolerations:
         - effect: NoSchedule
           operator: Exists
+      volumes:
+        extra:
+          - name: alloy-data
+            hostPath:
+              path: /var/lib/alloy
+              type: DirectoryOrCreate
 
     alloy:
+      # Hasta dónde leyó cada log. En el nodo, para que sobreviva a la recreación del pod:
+      # si se pierde, Alloy relee todos los logs desde el principio y se los reenvía a Loki
+      storagePath: /var/lib/alloy
       mounts:
         varlog: true
-      # Usa 115–160Mi por nodo
+        extra:
+          - name: alloy-data
+            mountPath: /var/lib/alloy
+      # Usa 115–160Mi por nodo; al arrancar sube a ~240Mi
       resources:
         requests:
           cpu: 20m
           memory: 160Mi
         limits:
-          memory: 256Mi
+          memory: 384Mi
       configMap:
         content: |
           // Pods del nodo donde corre este Alloy (HOSTNAME = spec.nodeName)

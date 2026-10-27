@@ -1,6 +1,7 @@
 # Alertas propias del proyecto. Se suman a las que trae kube-prometheus-stack
 # (KubePodCrashLooping, TargetDown, KubePersistentVolumeFillingUp, nodos, etc.).
-# Las warning y critical llegan a Telegram (ver alertmanager.config en prometheus.yaml).
+# Las que tienen notificar=telegram llegan al grupo de Telegram; el resto solo se ve en Grafana
+# (ver las rutas de alertmanager.config en prometheus.yaml).
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -15,6 +16,7 @@ spec:
           for: 2m
           labels:
             severity: critical
+            notificar: telegram
           annotations:
             summary: "{{ $labels.servicio }} no responde"
             description: "El chequeo HTTP a {{ $labels.instance }} falla desde hace más de 2 minutos."
@@ -23,6 +25,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "{{ $labels.servicio }} responde lento"
             description: "{{ $labels.instance }} tarda {{ $value | humanizeDuration }} en responder (umbral: 2s)."
@@ -37,6 +40,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "El backend de Twitter devuelve errores 5xx"
             description: "El {{ $value | humanizePercentage }} de las respuestas de la API fueron 5xx en los últimos 5 minutos. Ver logs: {namespace=\"twitter\"} |= \"Error no controlado\""
@@ -47,6 +51,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "Twitter responde lento en {{ $labels.http_route }}"
             description: "El 95% de los requests a {{ $labels.http_route }} tarda hasta {{ $value | humanizeDuration }} (umbral: 2s)."
@@ -55,6 +60,7 @@ spec:
           for: 2m
           labels:
             severity: critical
+            notificar: telegram
           annotations:
             summary: "{{ $labels.deployment }} no tiene réplicas disponibles"
             description: "El deployment {{ $labels.namespace }}/{{ $labels.deployment }} lleva 2 minutos sin pods listos."
@@ -66,6 +72,7 @@ spec:
           for: 3m
           labels:
             severity: critical
+            notificar: telegram
           annotations:
             summary: "{{ $labels.servicio }} no responde"
             description: "El chequeo a {{ $labels.instance }} falla desde hace más de 3 minutos."
@@ -77,6 +84,7 @@ spec:
           for: 3m
           labels:
             severity: critical
+            notificar: telegram
           annotations:
             summary: "Nodo de Cassandra {{ $labels.pod }} no está listo"
             description: "El pod {{ $labels.pod }} lleva 3 minutos sin estar Ready. Con un nodo caído el cluster sigue, pero sin margen."
@@ -89,6 +97,7 @@ spec:
           for: 5m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "Cassandra devuelve timeouts o errores de disponibilidad"
             description: "{{ $labels.pod }} registró {{ $value | humanize }} timeouts/unavailables en los últimos 5 minutos."
@@ -97,6 +106,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "Cassandra está descartando mensajes"
             description: "{{ $labels.pod }} descartó {{ $value | humanize }} mensajes en 10 minutos: señal de sobrecarga."
@@ -105,6 +115,7 @@ spec:
           for: 10m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "Cassandra tiene tareas bloqueadas en {{ $labels.pool_name }}"
             description: "{{ $labels.pod }} tiene {{ $value }} tareas bloqueadas en el pool {{ $labels.pool_name }} desde hace 10 minutos."
@@ -113,6 +124,7 @@ spec:
           for: 30m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "Cassandra acumula compactaciones pendientes"
             description: "{{ $labels.pod }} tiene {{ $value }} compactaciones pendientes desde hace 30 minutos."
@@ -124,6 +136,7 @@ spec:
           for: 5m
           labels:
             severity: critical
+            notificar: telegram
           annotations:
             summary: "SeaweedFS: {{ $labels.pod }} no responde"
             description: "Prometheus no puede leer las métricas de {{ $labels.pod }} desde hace 5 minutos."
@@ -135,6 +148,7 @@ spec:
           for: 15m
           labels:
             severity: warning
+            notificar: telegram
           annotations:
             summary: "Flux: {{ $labels.customresource_kind }} {{ $labels.exported_namespace }}/{{ $labels.name }} está fallando"
             description: "Lleva 15 minutos sin poder aplicarse. Ver: kubectl -n {{ $labels.exported_namespace }} describe {{ $labels.customresource_kind }} {{ $labels.name }}"

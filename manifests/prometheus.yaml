@@ -104,22 +104,49 @@ spec:
       config:
         route:
           group_by: [alertname, namespace]
-          receiver: telegram
+          # A Telegram va solo lo que está en estas rutas (gana la primera que coincide).
+          # El resto, como KubeAPIErrorBudgetBurn o los reinicios de pods de sistema, se ve en Grafana.
+          receiver: "null"
           routes:
-            - receiver: "null"
-              matchers: ['alertname = "Watchdog"']
-            - receiver: "null"
-              matchers: ['alertname = "InfoInhibitor"']
-            - receiver: "null"
-              matchers: ['severity = "info"']
-            # Síntomas de la lentitud de etcd: a Telegram solo si son critical
-            - receiver: "null"
+            # Respaldo: si el bot no puede entregar, Alertmanager avisa directo a Telegram (sin botones)
+            - receiver: telegram-directo
               matchers:
-                - alertname =~ "KubeAPIErrorBudgetBurn|KubeAPITerminatedRequests|KubeClientErrors|KubeAPILatencyHigh|KubeAggregatedAPIErrors"
-                - severity = "warning"
+                - alertname =~ "AlertmanagerFailedToSendAlerts|AlertmanagerClusterFailedToSendAlerts"
+                - integration = "webhook"
+            # Watchdog está siempre activa: una vez por día, a las 9, el bot la convierte en el resumen diario.
+            # Si el resumen no llega, el monitoreo está caído.
+            - receiver: bot
+              matchers: ['alertname = "Watchdog"']
+              active_time_intervals: [resumen-diario]
+              repeat_interval: 23h
+            # Alertas propias del estado de la app (label notificar en monitoring-alerts.yaml)
+            - receiver: bot
+              matchers: ['notificar = "telegram"']
+            # Nodos y discos: pueden tirar la app
+            - receiver: bot
+              matchers:
+                - alertname =~ "KubeNodeNotReady|KubeNodeUnreachable|KubePersistentVolume(FillingUp|InodesFillingUp|Errors)|NodeFilesystem(AlmostOutOfSpace|SpaceFillingUp|AlmostOutOfFiles|FilesFillingUp)"
+            # Reinicios de los pods de la app. Los de sistema (Flux, kube-system, cass-operator) son por la lentitud de etcd
+            - receiver: bot
+              matchers:
+                - alertname =~ "PodReiniciosFrecuentes|KubePodCrashLooping"
+                - namespace =~ "twitter|cassandra|seaweedfs"
+                - pod !~ "cass-operator-.*"
+        time_intervals:
+          - name: resumen-diario
+            time_intervals:
+              - times:
+                  - start_time: "09:00"
+                    end_time: "09:30"
+                location: America/Argentina/Buenos_Aires
         receivers:
           - name: "null"
-          - name: telegram
+          # Bot con botones para silenciar (alertas-telegram.yaml)
+          - name: bot
+            webhook_configs:
+              - url: http://alertas-telegram.monitoring.svc:8080/alertmanager
+                send_resolved: true
+          - name: telegram-directo
             telegram_configs:
               - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/bot-token
                 chat_id_file: /etc/alertmanager/secrets/alertmanager-telegram/chat-id

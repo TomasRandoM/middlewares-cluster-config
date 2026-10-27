@@ -128,7 +128,8 @@ spec:
       app: twitter-backend
   podMetricsEndpoints:
     - port: otel-metrics
-      interval: 30s
+      # 15s para los gráficos de requests y errores en tiempo real del «Resumen del proyecto»
+      interval: 15s
       metricRelabelings:
         - regex: otel_scope_(schema_url|version)
           action: labeldrop

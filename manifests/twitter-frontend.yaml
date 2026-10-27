@@ -55,7 +55,7 @@ metadata:
   namespace: twitter
   annotations:
     metallb.io/address-pool: twitter-pool
-    metallb.io/loadBalancerIPs: 10.66.50.3
+    metallb.io/loadBalancerIPs: 10.66.51.52
 spec:
   type: LoadBalancer
   selector:

@@ -147,7 +147,7 @@ spec:
     url: blackbox-exporter.monitoring.svc:9115
   targets:
     staticConfig:
-      static: ["http://10.66.50.3/"]
+      static: ["http://10.66.51.52/"]
       labels:
         servicio: twitter-frontend
 ---
@@ -164,7 +164,7 @@ spec:
   targets:
     staticConfig:
       # readiness también verifica la conexión a Cassandra y a S3
-      static: ["http://10.66.50.2:8080/actuator/health/readiness"]
+      static: ["http://10.66.51.51:8080/actuator/health/readiness"]
       labels:
         servicio: twitter-backend
 ---

@@ -95,7 +95,7 @@ spec:
               mountPath: /otel
           resources:
             requests:
-              cpu: 250m
+              cpu: 150m
               memory: 512Mi
             limits:
               cpu: "1"

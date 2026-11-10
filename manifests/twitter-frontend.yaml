@@ -20,7 +20,7 @@ spec:
         - name: ghcr-pull
       containers:
         - name: frontend
-          image: ghcr.io/fing-middlewares-distribuidos-2026/grupo5-webapp:v1.0.1
+          image: ghcr.io/fing-middlewares-distribuidos-2026/grupo5-webapp:v1.0.2
           imagePullPolicy: Always
           ports:
             - name: http
